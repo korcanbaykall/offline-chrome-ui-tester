@@ -16,7 +16,7 @@ from typing import Any
 
 from playwright.async_api import Page
 
-from src.ai import AIConfig, chat, load_knowledge, parse_json
+from src.ai import chat, load_knowledge, parse_json
 
 
 _OVERVIEW_JS = r"""
@@ -249,7 +249,7 @@ def _build_prompt(
 
 
 async def inspect_with_ai(
-    cfg: AIConfig,
+    text_model: str,
     elements: list[dict[str, Any]],
     overview: dict[str, Any],
     page_url: str,
@@ -257,7 +257,7 @@ async def inspect_with_ai(
     knowledge = load_knowledge()
     system, user = _build_prompt(elements, overview, knowledge, page_url)
     try:
-        raw = chat(cfg, system, user, want_json=True)
+        raw = chat(text_model, system, user, want_json=True, keep_alive=0)
     except Exception as e:
         return {
             "page_purpose": "(AI çağrısı başarısız)",

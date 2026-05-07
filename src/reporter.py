@@ -100,7 +100,9 @@ def write_report(
                 ok = run.get("pass")
                 err = run.get("error", {})
                 if err.get("found"):
-                    msg = err.get("msg", "")
+                    src = err.get("source", "")
+                    src_label = f" [{src}]" if src else ""
+                    msg = f"{err.get('msg', '')}{src_label}"
                 elif run.get("input_rejected"):
                     actual = run.get("actual_value", "")
                     msg = f"input değeri filtreledi (gerçek: '{actual}')"
