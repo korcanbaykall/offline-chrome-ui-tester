@@ -24,7 +24,7 @@ from src.ai import PipelineConfig
 from src.button_tester import test_buttons
 from src.cookies import dismiss as dismiss_cookies
 from src.input_tester import test_inputs
-from src.inspector import annotate, get_page_overview, inspect_with_ai, tag_elements
+from src.inspector import annotate, get_page_overview, inspect_with_ai, retag_and_remap, tag_elements
 from src.reasoner import synthesize as synthesize_report
 from src.reporter import write_report
 
@@ -117,6 +117,23 @@ async def run(args: argparse.Namespace) -> int:
         print(f"\n→ [2/3] Input testleri (vision: {vision or 'kapalı'})...")
         input_results = await test_inputs(page, annotated, vision_model=vision)
         print(f"  test edilen input: {sum(1 for r in input_results if not r.get('skipped'))}")
+
+        # Input testlerinde Continue/submit'e defalarca basıldı, sayfa form'u
+        # yeniden render etmiş olabilir. Buton testlerinden önce sayfayı
+        # orijinal state'e döndür ve elementleri yeniden tag'le.
+        print("\n→ Buton testleri öncesi sayfayı sıfırlıyorum...")
+        try:
+            await page.goto(args.url, wait_until="domcontentloaded", timeout=30000)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(1000)
+            await dismiss_cookies(page)
+            alive = await retag_and_remap(page, annotated)
+            print(f"  {alive} element yeniden tag'lendi")
+        except Exception as e:
+            print(f"  ! sıfırlama başarısız: {e}")
 
         print("\n→ Buton testleri çalışıyor...")
         button_results = await test_buttons(page, annotated)
