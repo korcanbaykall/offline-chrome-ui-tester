@@ -15,10 +15,11 @@ from typing import Any
 
 @dataclass
 class PipelineConfig:
-    """Pipeline'da kullanılacak 3 model. Her biri ayrı uzman."""
-    text_model: str = "qwen3:32b"           # sayfa anlama, JSON karar
-    vision_model: str = "llama3.2-vision:11b"  # ekran görüntüsü okuma
-    reasoning_model: str = "deepseek-r1:32b"   # final sentez, bug hipotezi
+    """2 model: küçük text modeli (inspect + final özet) + vision modeli
+    (sadece native validation yakalayamadığında devreye girer). Model swap
+    minimum: aynı text modeli iki rolü üstlenir."""
+    text_model: str = "qwen3:14b"             # inspect + reasoning (özet)
+    vision_model: str = "llama3.2-vision:11b" # şüpheli durum — 11B yeter, text ile RAM'e sığar
 
 
 def load_knowledge(path: str = "knowledge.md") -> str:
@@ -48,7 +49,7 @@ def chat(
             "\n\nÖNEMLİ: SADECE geçerli JSON döndür. Başka açıklama veya "
             "markdown ekleme. JSON dışı tek karakter olmasın."
         )
-    options = {"temperature": 0.2, "num_ctx": 16384}
+    options = {"temperature": 0.2, "num_ctx": 8192}
     kwargs: dict[str, Any] = {"keep_alive": keep_alive}
     if want_json:
         kwargs["format"] = "json"

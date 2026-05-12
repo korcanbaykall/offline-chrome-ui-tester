@@ -1,13 +1,10 @@
-"""Offline UI Tester — pipeline mimarisi.
+"""Offline UI Tester — sade 2 model.
 
-3 modelli akış:
-  1. Qwen 3 32B (text)         → sayfa anlama, field_meaning, buton kararları
-  2. Llama 3.2 Vision 11B      → input testlerinden sonra ekran görüntüsünden
-                                  hata mesajı tespiti (DOM kazısının kaçırdığı)
-  3. DeepSeek R1 Distill 32B   → final sentez, bug hipotezi, tester raporu
+  1. Text modeli (qwen3:8b)   → sayfa anlama + final özet (aynı model)
+  2. Vision modeli (32B)      → SADECE native validation hiçbir şey yakalamayınca
 
-Her adım sırayla çağrılır, model RAM'den boşaltılır (keep_alive=0).
-Tek seferde RAM'de 1 model olur, 32GB makinede rahat çalışır.
+Her çağrı sonrası model RAM'den düşer (keep_alive=0). Vision çoğu zaman hiç
+çağrılmıyor; çağrıldığında da retry yok (1 deneme).
 """
 
 from __future__ import annotations
@@ -32,17 +29,16 @@ from src.reporter import write_report
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--url", required=True, help="Test edilecek sayfa URL'i")
-    p.add_argument("--text-model", default="qwen3:32b",
-                   help="Text inceleme modeli (varsayılan: qwen3:32b)")
+    p.add_argument("--text-model", default="qwen3:14b",
+                   help="Text modeli — inspect + özet (varsayılan: qwen3:14b)")
     p.add_argument("--vision-model", default="llama3.2-vision:11b",
                    help="Vision modeli (varsayılan: llama3.2-vision:11b)")
-    p.add_argument("--reasoning-model", default="deepseek-r1:32b",
-                   help="Reasoning modeli (varsayılan: deepseek-r1:32b)")
     p.add_argument("--no-vision", action="store_true",
-                   help="Vision adımını atla (daha hızlı)")
+                   help="Vision fallback'i tamamen kapat")
     p.add_argument("--no-reasoning", action="store_true",
-                   help="Reasoning adımını atla (daha hızlı)")
-    p.add_argument("--out", default="report.html", help="Rapor dosya yolu")
+                   help="Final AI özetini atla (deterministik özet kalır)")
+    p.add_argument("--out", default=None,
+                   help="Rapor yolu (verilmezse masaüstüne timestamp'li kaydedilir)")
     p.add_argument("--headless", action="store_true",
                    help="Browser'ı görünmez modda aç (varsayılan: görünür)")
     p.add_argument("--slow-mo", type=int, default=300,
@@ -56,7 +52,6 @@ async def run(args: argparse.Namespace) -> int:
     cfg = PipelineConfig(
         text_model=args.text_model,
         vision_model=args.vision_model,
-        reasoning_model=args.reasoning_model,
     )
 
     async with async_playwright() as pw:
@@ -102,7 +97,7 @@ async def run(args: argparse.Namespace) -> int:
         print(f"  bulundu: {n_in} input, {n_bt} buton/link ({n_nav} nav)")
 
         # === ADIM 1: TEXT MODEL — sayfa anlama ===
-        print(f"\n→ [1/3] Text inceleme: {cfg.text_model} ...")
+        print(f"\n→ [1/2] Text inceleme: {cfg.text_model} ...")
         t0 = time.time()
         inspection = await inspect_with_ai(cfg.text_model, elements, overview, page.url)
         print(f"  süre: {time.time() - t0:.1f}sn")
@@ -114,7 +109,7 @@ async def run(args: argparse.Namespace) -> int:
         # anında screenshot okur — buton testlerinden ÖNCE, sayfa state'i
         # bozulmadan) ===
         vision = None if args.no_vision else cfg.vision_model
-        print(f"\n→ [2/3] Input testleri (vision: {vision or 'kapalı'})...")
+        print(f"\n→ [2/2] Input testleri (vision fallback: {vision or 'kapalı'})...")
         input_results = await test_inputs(page, annotated, vision_model=vision)
         print(f"  test edilen input: {sum(1 for r in input_results if not r.get('skipped'))}")
 
@@ -139,13 +134,13 @@ async def run(args: argparse.Namespace) -> int:
         button_results = await test_buttons(page, annotated)
         print(f"  test edilen buton: {sum(1 for r in button_results if not r.get('skipped'))}")
 
-        # === ADIM 3: REASONING MODEL — final sentez ===
+        # === Final özet — aynı text modeli ===
         ai_summary = ""
         if not args.no_reasoning:
-            print(f"\n→ [3/3] Reasoning sentez: {cfg.reasoning_model} ...")
+            print(f"\n→ Final özet ({cfg.text_model}) ...")
             t0 = time.time()
             ai_summary = synthesize_report(
-                cfg.reasoning_model,
+                cfg.text_model,
                 page_url=args.url,
                 page_purpose=inspection.get("page_purpose", ""),
                 input_results=input_results,
@@ -153,7 +148,20 @@ async def run(args: argparse.Namespace) -> int:
             )
             print(f"  süre: {time.time() - t0:.1f}sn")
 
-        out = Path(args.out).resolve()
+        # Default: masaüstü + timestamp + host. --out verilmişse override.
+        if args.out:
+            out = Path(args.out).expanduser().resolve()
+            if out.is_dir():
+                out = out / "report.html"
+        else:
+            from urllib.parse import urlparse
+            host = (urlparse(args.url).hostname or "site").replace("www.", "")
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            desktop = Path.home() / "Desktop"
+            desktop.mkdir(parents=True, exist_ok=True)
+            out = desktop / f"ui-test-{host}-{ts}.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+
         write_report(
             str(out),
             page_url=args.url,
@@ -163,21 +171,6 @@ async def run(args: argparse.Namespace) -> int:
             ai_summary=ai_summary,
         )
         print(f"\n✓ Rapor: {out}")
-
-        # Raporu yeni tab'da aç, tarayıcı manuel kapatılana kadar bekle.
-        try:
-            report_page = await ctx.new_page()
-            await report_page.goto(f"file://{out}")
-        except Exception as e:
-            print(f"  (rapor tab'ı açılamadı: {e})")
-
-        print("\nTarayıcıyı kapattığınızda program sonlanır.")
-        disconnected = asyncio.Event()
-        browser.on("disconnected", lambda _b: disconnected.set())
-        try:
-            await disconnected.wait()
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            pass
         return 0
 
 

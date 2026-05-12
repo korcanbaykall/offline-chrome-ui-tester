@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
-# Offline UI Tester — tek komutla başlatıcı (lokal ollama, harici API yok).
+# Offline UI Tester — başlatıcı. URL'i her zaman sorar.
 # Kullanım:
-#   ./start.sh                                  -> URL sorar
-#   ./start.sh --url https://example.com        -> direkt başlat
-#   ./start.sh --url X --model llama3.1:8b      -> farklı model
+#   ./start.sh                  -> URL sorar
+#   ./start.sh --no-vision      -> URL sorar + ek bayraklar geçer
 
 set -e
 cd "$(dirname "$0")"
 
-if [[ "$*" != *"--url"* ]]; then
-  read -r -p "URL: " url
-  exec uv run python run.py --url "$url" "$@"
-else
-  exec uv run python run.py "$@"
-fi
+read -r -p "URL: " url
+exec uv run python run.py --url "$url" "$@"

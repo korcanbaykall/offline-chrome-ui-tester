@@ -227,18 +227,13 @@ async def test_inputs(
             input_rejected = (actual is not None and _clean(actual) != _clean(v))
 
             # Native ve input_rejected hata göstermediyse: submit'e bas, vision'a sor.
+            # _click_submit zaten 1.8sn bekliyor — tek deneme yeterli.
             if not (err_found or input_rejected) and vision_model:
                 print(f"      submit'e basıyorum → vision'a soracağım...", flush=True)
                 await _click_submit(page, el["id"])
-                # vision çağrısı — ilk denemede mesaj henüz render olmamışsa
-                # 1.5sn bekleyip tekrar dene
                 try:
                     from src.vision import find_error_message
                     vis = await find_error_message(page, vision_model, field_label=el.get("label", ""))
-                    if not vis.get("has_error"):
-                        # retry: bazen mesaj animasyon ile geç beliriyor
-                        await page.wait_for_timeout(1500)
-                        vis = await find_error_message(page, vision_model, field_label=el.get("label", ""))
                     if vis.get("has_error"):
                         r["error"] = {"found": True, "source": "vision",
                                       "msg": vis.get("message", "")}
@@ -246,7 +241,7 @@ async def test_inputs(
                         err_found = True
                         print(f"      → vision yakaladı: {vis.get('message','')[:80]}", flush=True)
                     else:
-                        print(f"      → vision: ekranda hata yok (2 deneme sonrası)", flush=True)
+                        print(f"      → vision: ekranda hata yok", flush=True)
                 except Exception as e:
                     print(f"      vision çağrısı başarısız: {e}", flush=True)
 

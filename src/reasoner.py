@@ -1,7 +1,6 @@
-"""Reasoning modeli ile final sentez — test sonuçlarını okuyup
-"genel sonuç + bug hipotezi" üretir.
+"""Final özet — text modeliyle test sonuçlarına kısa Türkçe rapor yazar.
 
-Pipeline'ın 'dedektif' uzmanı. DeepSeek R1 Distill 32B (thinking model).
+Ayrı reasoning modeli yok; inspect ile aynı model. Ekstra model swap yok.
 """
 
 from __future__ import annotations
